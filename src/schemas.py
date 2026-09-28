@@ -38,7 +38,13 @@ class CalibrationResult:
     score_z: float | None  # undefined when variance is zero
     score_percentile: float | None  # % of history strictly below this score
     anomaly_threshold_abs_z: float  # project policy, not a statistical truth
-    calibration_status: str  # consistent_with_reviewer_history | calibration_anomaly | insufficient_history
+    calibration_status: str  # consistent_with_reviewer_history | calibration_anomaly | insufficient_history | missing_timestamp
+    calibration_method: str  # "point_in_time" | "leave_one_out_legacy"
+    # point_in_time: strict V3 baseline (timestamp strictly < T).
+    # leave_one_out_legacy: V2 approximation for timestamp-less records;
+    #   kept for backward compatibility, never used when timestamps exist.
+    #   (A missing_timestamp record in require_timestamps mode reports
+    #   calibration_method="point_in_time": the mode in force refused it.)
     # --- sentiment: contextual evidence only; never a flag gate (V2) ---
     sentiment_status: str  # "available" | "unavailable"
     sentiment_label: str | None  # e.g. "NEUTRAL" (Comprehend) / "neutral" (rules)

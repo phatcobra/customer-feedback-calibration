@@ -84,8 +84,8 @@ class TestPointInTime(unittest.TestCase):
                 reviews.append(R(rid, "alex", s, POSITIVE,
                                  ts(T0 + timedelta(days=d, hours=d))))
         # astuple order: 0 reviewer_id, 1 employee, 2 score, 3 review_text,
-        # ..., 24 timestamp
-        key = lambda t: (t[0], t[24] or "", t[3], t[2], t[1])
+        # ..., 25 timestamp (26 fields; calibration_method is index 12)
+        key = lambda t: (t[0], t[25] or "", t[3], t[2], t[1])
         ref = sorted((dataclasses.astuple(r) for r in calibrate(reviews)), key=key)
         shuffled = reviews[:]
         random.Random(7).shuffle(shuffled)

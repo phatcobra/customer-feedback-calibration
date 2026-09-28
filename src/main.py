@@ -4,6 +4,9 @@ Usage:
   python3 src/main.py                          # rule-based sentiment (default)
   python3 src/main.py --sentiment comprehend    # Amazon Comprehend (needs AWS creds)
   python3 src/main.py --sentiment comprehend --region us-west-2
+  python3 src/main.py --require-timestamps     # production contract: refuse
+                                               # timestamp-less records instead
+                                               # of degrading to leave-one-out
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ COLUMNS = [
     "history_count", "baseline_status",
     "reviewer_historical_mean", "reviewer_historical_stddev",
     "score_z", "score_percentile", "anomaly_threshold_abs_z",
-    "calibration_status", "flag",
+    "calibration_status", "calibration_method", "flag",
     "sentiment_status", "sentiment_label",
     "sentiment_positive", "sentiment_negative",
     "sentiment_neutral", "sentiment_mixed",
@@ -41,6 +44,10 @@ def main() -> None:
     parser.add_argument("--sentiment", choices=["rules", "comprehend"],
                         default="rules")
     parser.add_argument("--region", default="us-east-1")
+    parser.add_argument("--require-timestamps", action="store_true",
+                        help="production contract: refuse timestamp-less records "
+                             "(missing_timestamp) instead of degrading to the "
+                             "V2 leave-one-out approximation")
     args = parser.parse_args()
 
     if args.sentiment == "comprehend":
@@ -53,12 +60,20 @@ def main() -> None:
         provider = RuleBasedProvider()
         print("Sentiment provider: rule-based lexicon (V1 baseline)")
 
+    if args.require_timestamps:
+        print("Calibration contract: point-in-time REQUIRED "
+              "(timestamp-less records refused as missing_timestamp)")
+    else:
+        print("Calibration contract: point-in-time; legacy leave-one-out "
+              "fallback for timestamp-less records (explicit per row)")
+
     input_path = os.path.join(BASE, "data", "mock_reviews.csv")
     output_path = os.path.join(BASE, "data", "analyzed_reviews.csv")
     report_path = os.path.join(BASE, "data", "report.txt")
 
     reviews = load_reviews(input_path)
-    results = calibrate(reviews, provider=provider)
+    results = calibrate(reviews, provider=provider,
+                        require_timestamps=args.require_timestamps)
     summary = summarize(results)
 
     with open(output_path, "w", newline="", encoding="utf-8") as fh:
@@ -70,7 +85,7 @@ def main() -> None:
                 r.history_count, r.baseline_status,
                 r.reviewer_historical_mean, r.reviewer_historical_stddev,
                 r.score_z, r.score_percentile, r.anomaly_threshold_abs_z,
-                r.calibration_status, r.flag,
+                r.calibration_status, r.calibration_method, r.flag,
                 r.sentiment_status, r.sentiment_label,
                 r.sentiment_positive, r.sentiment_negative,
                 r.sentiment_neutral, r.sentiment_mixed,

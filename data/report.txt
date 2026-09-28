@@ -1,4 +1,4 @@
-FEEDBACK CALIBRATION REPORT (V2, synthetic data)
+FEEDBACK CALIBRATION REPORT (V3, synthetic data)
 ============================================================
 Reviews analyzed: 303
 
@@ -26,6 +26,9 @@ Calibration status:
   calibration_anomaly: 3
   consistent_with_reviewer_history: 208
   insufficient_history: 92
+
+Calibration method (explicit per row; never silent):
+  point_in_time: 303
 
 Positive themes:
   professionalism: 146

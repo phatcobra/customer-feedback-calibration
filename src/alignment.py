@@ -28,6 +28,12 @@ records never contribute to one another (no implicit ordering). Reviews
 with no timestamp use the V2 leave-one-out approximation as a documented
 legacy path, and timestamp-less reviews are excluded from timestamped
 targets' histories (they cannot be ordered).
+
+Production contract: REQUIRE_TIMESTAMPS (or calibrate(..., require_timestamps=True),
+--require-timestamps on the CLI) makes timestamp-less records an explicit
+refusal -- calibration_status="missing_timestamp", no baseline, no silent
+degradation to leave-one-out. Every result carries calibration_method
+("point_in_time" | "leave_one_out_legacy") so the mode is explicit in output.
 """
 
 from __future__ import annotations
@@ -42,7 +48,16 @@ from .sentiment import RuleBasedProvider, SentimentEvidence, SentimentProvider
 MIN_HISTORY = 10
 ANOMALY_THRESHOLD_ABS_Z = 2.0
 ZERO_VAR_TOL = 1e-9
+# Production-mode contract: when True, timestamp-less records are REFUSED
+# (calibration_status="missing_timestamp") instead of silently degrading to
+# the V2 leave-one-out approximation. Default False keeps the legacy path for
+# backward compatibility with timestamp-less / synthetic data. Every result
+# reports calibration_method explicitly, so the mode is never silent.
+REQUIRE_TIMESTAMPS = False
 # ----------------------------------------------------------------------
+
+POINT_IN_TIME = "point_in_time"
+LEAVE_ONE_OUT_LEGACY = "leave_one_out_legacy"
 
 THEME_KEYWORDS = {
     "wait time": {"wait", "waiting", "waited", "long", "slow"},
@@ -84,6 +99,18 @@ def _percentile(history: list[int], score: int) -> float:
     return 100.0 * sum(1 for s in history if s < score) / len(history)
 
 
+def _calibration_method(review: Review) -> str:
+    """Which baseline the engine used for this review (explicit in output)."""
+    return POINT_IN_TIME if review.timestamp is not None else LEAVE_ONE_OUT_LEGACY
+
+
+def _legacy_note(method: str) -> str:
+    if method == LEAVE_ONE_OUT_LEGACY:
+        return (" [calibration_method=leave_one_out_legacy: timestamp missing; "
+                "baseline is the V2 leave-one-out approximation, not point-in-time.]")
+    return ""
+
+
 def _history_for(review: Review, i: int, reviews: list[Review],
                  positions: dict[str, list[int]]) -> list[int]:
     """Point-in-time history for one review.
@@ -110,17 +137,15 @@ def _sentiment_note(ev: SentimentEvidence) -> str:
         return f"The written feedback was classified as {ev.label}; sentiment was not used to determine the anomaly."
     return (f"Written-feedback sentiment unavailable ({ev.detail}); "
             "the anomaly determination used reviewer history only.")
-    if ev.status == "available":
-        return f"The written feedback was classified as {ev.label}; sentiment was not used to determine the anomaly."
-    return (f"Written-feedback sentiment unavailable ({ev.detail}); "
-            "the anomaly determination used reviewer history only.")
 
 
-def _base_kwargs(review: Review, ev: SentimentEvidence, pos_themes, neg_themes) -> dict:
+def _base_kwargs(review: Review, ev: SentimentEvidence, pos_themes, neg_themes,
+                 method: str) -> dict:
     return dict(
         reviewer_id=review.reviewer_id, employee=review.employee,
         score=review.customer_score, review_text=review.review_text,
         timestamp=review.timestamp,
+        calibration_method=method,
         sentiment_status=ev.status, sentiment_label=ev.label,
         sentiment_positive=ev.positive, sentiment_negative=ev.negative,
         sentiment_neutral=ev.neutral, sentiment_mixed=ev.mixed,
@@ -131,7 +156,15 @@ def _base_kwargs(review: Review, ev: SentimentEvidence, pos_themes, neg_themes) 
 
 
 def calibrate(reviews: list[Review],
-              provider: SentimentProvider | None = None) -> list[CalibrationResult]:
+              provider: SentimentProvider | None = None,
+              require_timestamps: bool = REQUIRE_TIMESTAMPS) -> list[CalibrationResult]:
+    """Calibrate every review against its reviewer's history.
+
+    require_timestamps=True enforces the production contract: timestamp-less
+    records are refused with calibration_status="missing_timestamp" (no
+    baseline, no silent fallback to leave-one-out). Default False keeps the
+    documented legacy path for timestamp-less / synthetic data.
+    """
     provider = provider or RuleBasedProvider()
     evidence = provider.analyze_batch([r.review_text for r in reviews])
     assert len(evidence) == len(reviews), "provider must return one evidence per review"
@@ -144,11 +177,33 @@ def calibrate(reviews: list[Review],
     results: list[CalibrationResult] = []
     for i, review in enumerate(reviews):
         ev = evidence[i]
+        method = _calibration_method(review)
+        legacy_note = _legacy_note(method)
+        pos_themes, neg_themes = extract_themes(review.review_text, ev.label)
+        base = _base_kwargs(review, ev, pos_themes, neg_themes, method)
+
+        if review.timestamp is None and require_timestamps:
+            # Production contract: refuse, do not degrade. Falling back to
+            # leave-one-out here would silently reintroduce the temporal
+            # leakage V3 was built to eliminate.
+            base["calibration_method"] = POINT_IN_TIME  # mode in force; record refused admission
+            results.append(CalibrationResult(
+                **base,
+                history_count=0, baseline_status="missing_timestamp",
+                reviewer_historical_mean=None, reviewer_historical_stddev=None,
+                score_z=None, score_percentile=None,
+                calibration_status="missing_timestamp",
+                flag=False,
+                reason=("missing_timestamp: production mode (require_timestamps) "
+                        "requires a timestamp; no calibration performed. "
+                        "The record was excluded rather than degraded to "
+                        "the leave-one-out approximation."),
+            ))
+            continue
+
         # V3: strict point-in-time history (Constraint 1, temporal form).
         history = _history_for(review, i, reviews, positions)
         n = len(history)
-        pos_themes, neg_themes = extract_themes(review.review_text, ev.label)
-        base = _base_kwargs(review, ev, pos_themes, neg_themes)
 
         if n < MIN_HISTORY:
             results.append(CalibrationResult(
@@ -159,7 +214,8 @@ def calibrate(reviews: list[Review],
                 calibration_status="insufficient_history",
                 flag=False,
                 reason=(f"Insufficient reviewer history ({n} < {MIN_HISTORY}): "
-                        "no calibration performed. No inference about this score."),
+                        "no calibration performed. No inference about this score."
+                        f"{legacy_note}"),
             ))
             continue
 
@@ -177,6 +233,7 @@ def calibrate(reviews: list[Review],
                 f"scores = {history[0]}); this score "
                 f"{'matches' if consistent else 'differs from'} it. "
                 "z-score undefined (zero variance)."
+                f"{legacy_note}"
             )
             if not consistent:
                 reason += " Human review recommended; do not auto-adjust."
@@ -203,6 +260,7 @@ def calibrate(reviews: list[Review],
                 f"percentile {percentile:.0f}; project threshold |z| >= "
                 f"{ANOMALY_THRESHOLD_ABS_Z}). {_sentiment_note(ev)} "
                 "Human review recommended; do not auto-adjust."
+                f"{legacy_note}"
             )
         else:
             status = "consistent_with_reviewer_history"
@@ -210,6 +268,7 @@ def calibrate(reviews: list[Review],
                 f"The score is consistent with this reviewer's established "
                 f"scoring pattern (mean {mean:.2f}, std {std:.2f}, z={z:.2f}, "
                 f"percentile {percentile:.0f}). {_sentiment_note(ev)}"
+                f"{legacy_note}"
             )
         results.append(CalibrationResult(
             **base,

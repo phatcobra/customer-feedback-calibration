@@ -23,6 +23,7 @@ def summarize(results: list[CalibrationResult]) -> dict:
             r.sentiment_label for r in results if r.sentiment_label)),
         "baseline_status_counts": dict(Counter(r.baseline_status for r in results)),
         "calibration_status_counts": dict(Counter(r.calibration_status for r in results)),
+        "calibration_method_counts": dict(Counter(r.calibration_method for r in results)),
         "positive_theme_counts": dict(
             Counter(t for r in results for t in r.positive_themes)
         ),
@@ -35,7 +36,7 @@ def summarize(results: list[CalibrationResult]) -> dict:
 
 def render_text(summary: dict) -> str:
     lines = [
-        "FEEDBACK CALIBRATION REPORT (V2, synthetic data)",
+        "FEEDBACK CALIBRATION REPORT (V3, synthetic data)",
         "=" * 60,
         f"Reviews analyzed: {summary['n_reviews']}",
         "",
@@ -54,6 +55,9 @@ def render_text(summary: dict) -> str:
         lines.append(f"  {s}: {c}")
     lines += ["", "Calibration status:"]
     for s, c in sorted(summary["calibration_status_counts"].items()):
+        lines.append(f"  {s}: {c}")
+    lines += ["", "Calibration method (explicit per row; never silent):"]
+    for s, c in sorted(summary["calibration_method_counts"].items()):
         lines.append(f"  {s}: {c}")
     lines += ["", "Positive themes:"]
     for t, c in sorted(summary["positive_theme_counts"].items(), key=lambda x: -x[1]):
