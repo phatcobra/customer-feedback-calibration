@@ -1,0 +1,53 @@
+FEEDBACK CALIBRATION REPORT (V2, synthetic data)
+============================================================
+Reviews analyzed: 303
+
+Average score by employee:
+  alex: 7.82
+  james: 7.22
+  maria: 7.03
+
+Sentiment status (evidence only, never a flag gate):
+  available: 303
+
+Sentiment labels:
+  mixed: 86
+  negative: 18
+  neutral: 37
+  positive: 54
+  strongly_positive: 108
+
+Baseline status:
+  insufficient_history: 92
+  sufficient_history: 203
+  zero_variance_baseline: 8
+
+Calibration status:
+  calibration_anomaly: 3
+  consistent_with_reviewer_history: 208
+  insufficient_history: 92
+
+Positive themes:
+  professionalism: 146
+  knowledge: 86
+  responsiveness: 79
+  wait time: 63
+  resolution: 60
+
+Negative themes:
+  professionalism: 71
+  wait time: 63
+  resolution: 51
+  responsiveness: 18
+  knowledge: 13
+
+Flagged for human review: 3
+  [calibration_anomaly] reviewer=r_avg employee=maria score=4 (history n=12, mean=7.0, z=-2.22)
+    text: Professional and courteous, but I waited a long time to be seen.
+    why: Calibration anomaly: score 4 is unusually low relative to this reviewer's prior pattern (mean 7.00, std 1.35, z=-2.22, percentile 0; project threshold |z| >= 2.0). The written feedback was classified as mixed; sentiment was not used to determine the anomaly. Human review recommended; do not auto-adjust.
+  [calibration_anomaly] reviewer=r_planted employee=alex score=4 (history n=12, mean=9.5, z=-10.53)
+    text: The service was fine, nothing special.
+    why: Calibration anomaly: score 4 is unusually low relative to this reviewer's prior pattern (mean 9.50, std 0.52, z=-10.53, percentile 0; project threshold |z| >= 2.0). The written feedback was classified as neutral; sentiment was not used to determine the anomaly. Human review recommended; do not auto-adjust.
+  [calibration_anomaly] reviewer=r_zerovar employee=maria score=5 (history n=11, mean=9.0, z=undefined (zero variance))
+    text: Alex was great and answered all my questions.
+    why: Reviewer has a constant historical pattern (all 11 prior scores = 9); this score differs from it. z-score undefined (zero variance). Human review recommended; do not auto-adjust.
